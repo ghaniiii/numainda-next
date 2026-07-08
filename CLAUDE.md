@@ -140,9 +140,10 @@ Technology stack:
 - `/admin/dashboard`, `/admin/upload` - Admin interfaces
 
 **Layout** (`app/layout.tsx`):
-- Theme provider (dark mode via next-themes)
-- Site header with navigation (site-header.tsx)
-- Footer, toast notifications, Vercel Analytics, Google Analytics
+- Owns the only document/app shell: `<html>`, `<body>`, theme provider, analytics, toast notifications, and floating chat bubble
+- Renders `LayoutContent`, which owns the site header, scrollable page wrapper, and footer visibility
+- Chat routes hide the footer for a full-screen chat experience
+- Locale routes under `app/[locale]/layout.tsx` are nested providers only; they must not render another `<html>`, `<body>`, header, footer, analytics, or theme provider
 
 **Navigation** (`config/site.ts`): Home, Chat, About, Proceedings, Acts, Constitution
 
@@ -352,6 +353,64 @@ These client components wrap server components to trigger GA events on mount.
 **View Analytics**: https://analytics.google.com (Property: G-QMPHXVV7TX)
 
 **Documentation**: See `docs/google-analytics-integration.md` for comprehensive setup details, metric recommendations, and troubleshooting.
+
+## Bug Fixes & Improvements (June 2026)
+
+### 1. Chat Auto-Scroll Fix
+**Issue**: Chat automatically scrolled to bottom on every message, disrupting users reading previous messages.
+
+**Solution**: Implemented smart scroll detection that only auto-scrolls when user is already at the bottom of the chat.
+
+**Files Modified**:
+- `app/[locale]/chat/page.tsx` - Added scroll position tracking with `messagesContainerRef` and `shouldAutoScrollRef`
+- `app/chat/page.tsx` - Same smart scroll implementation
+- `components/floating-chat-bubble.tsx` - Removed duplicate scroll triggers, added smart scroll logic
+
+**How it works**:
+- Tracks distance from bottom: `scrollHeight - (scrollTop + clientHeight)`
+- Only auto-scrolls if within 100px of bottom
+- Preserves user's scroll position when reading previous messages
+- Smooth scrolling when at bottom
+
+**Benefits**:
+- âœ… Users can read previous messages without interruption
+- âœ… Auto-scroll still works when at bottom
+- âœ… Much better mobile experience
+- âœ… No more jumping/jarring scrolls during message streaming
+
+### 2. Duplicate Navigation Bar Fix
+**Issue**: Chat pages showed duplicate page chrome: a main navigation bar at the top and another navigation/footer region lower on the page. On locale routes such as `/en/chat`, the app could feel like two pages were rendered inside one page.
+
+**Root cause**: `app/[locale]/layout.tsx` was rendering a second full app shell inside the root shell, including `<html>`, `<body>`, `ThemeProvider`, `SiteHeader`, `Footer`, analytics, toast notifications, and floating chat. React also hit a hydration mismatch because Urdu line-height CSS was rendered as inline `<style>` text inside the locale provider.
+
+**Solution**: Keep the document shell in `app/layout.tsx` only. `app/[locale]/layout.tsx` now provides locale context and locale attributes only. `LayoutContent` handles the single header, scroll wrapper, and footer hiding for all chat routes, including locale routes. Urdu typography rules live in `styles/globals.css` instead of an inline style tag.
+
+**Files Modified**:
+- `app/layout.tsx` - Uses new `LayoutContent` component instead of directly rendering SiteHeader/Footer
+- `app/[locale]/layout.tsx` - Nested locale provider only; no duplicate document/app shell
+- `components/layout-content.tsx` - New component that conditionally renders navigation based on route
+- `components/footer.tsx` - Hides on any pathname containing `/chat`
+- `components/floating-chat-bubble.tsx` - Fixed malformed smart-scroll code and hides on localized chat routes
+- `styles/globals.css` - Contains Urdu line-height rules to avoid hydration mismatch
+
+**How it works**:
+```typescript
+const isChatPage = pathname.includes('/chat')
+
+return (
+  <>
+    <SiteHeader />  // Always shown
+    <div>{children}</div>
+    {!isChatPage && <Footer />}  // Hidden on /chat, /en/chat, /ur/chat, etc.
+  </>
+)
+```
+
+**Benefits**:
+- Clean chat interface with only one top navigation
+- No duplicate footer/navigation region on localized routes
+- No nested `<html>`/`<body>` or duplicate providers
+- No inline Urdu style hydration mismatch
 
 ## External Services
 
